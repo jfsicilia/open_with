@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
 
-# ── Environment ──────────────────────────────────────────────────────────────
-# Ensure Wayland/KDE/D-Bus variables are set so the script works correctly
-# when launched from minimal environments (e.g. kanata) that don't inherit
-# the full desktop session.
-export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
-export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-KDE}"
-export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-KDE}"
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 # rofi_menu — Display a rofi dmenu with a given prompt.
@@ -25,23 +14,38 @@ rofi_menu() {
     rofi -dmenu -p "$prompt" "$@"
 }
 
-app=$(printf 'm. CHROME\nt. TERMINAL\nv. NVIM' |
+# ── Menu options ──────────────────────────────────────────────────────────────
+# Each entry is "key. LABEL" — the key enables rofi prefix quick-select.
+options=(
+    "m. CHROME"
+    "t. TERMINAL"
+    "v. NVIM"
+)
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+app=$(printf '%s\n' "${options[@]}" |
     rofi_menu "Open with..." -matching prefix -auto-select)
 
-app="${app#*. }" # strip letter prefix (e.g. "o. open" → "open")
+app="${app#*. }" # strip letter prefix (e.g. "m. CHROME" → "CHROME")
 
 case "$app" in
 CHROME)
     google-chrome --new-window $@
     ;;
 TERMINAL)
-    # Open one foot terminal per path argument.
+    # Open one foot terminal per unique directory.
     # If the path is a file, use its parent directory instead.
+    # Deduplicate so multiple files in the same folder don't spawn extra terminals.
+    declare -A seen
     for path in "$@"; do
         if [ -f "$path" ]; then
             path="$(dirname "$path")"
         fi
-        foot --maximized --working-directory="$path" &
+        if [[ -z "${seen[$path]}" ]]; then
+            seen[$path]=1
+            foot --maximized --working-directory="$path" &
+        fi
     done
     ;;
 NVIM)
